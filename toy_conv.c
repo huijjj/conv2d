@@ -1,19 +1,20 @@
 #include <time.h>
+#include <stdint.h>
 
 // for debugging
 #include <string.h>
 #include <stdio.h>
 
 double benchmark(
-    float *tensorIn,
-    float *kernel,
-    float *tensorOut,
+    int32_t *tensorIn,
+    int32_t *kernel,
+    int32_t *tensorOut,
     int N,
     int IH, int IW, int IC, int OC,
     int KH, int KW
 )
 {
-    int num_iter = 1;
+    int num_iter = 10;
 
     struct timespec start, end;
     double total_time = 0;
@@ -30,26 +31,14 @@ double benchmark(
 }
 
 int inference(
-    float *tensorIn,
-    float *kernel,
-    float *tensorOut,
+    int32_t *tensorIn,
+    int32_t *kernel,
+    int32_t *tensorOut,
     int N,
     int IH, int IW, int IC, int OC,
     int KH, int KW
 )
 {
-    
-    // for debugging
-    if(KW == 7) {
-        printf("N: %d, IH: %d, IW: %d, IC: %d, OC: %d, KH: %d, KW: %d\n", N, IH, IW, IC, OC, KH, KW);
-        for(int i = 0; i < N*IH*IW*IC; i++)
-            tensorIn[i] = 1.0;
-        for(int i = 0; i < OC*KH*KW*IC; i++)
-            kernel[i] = 1.0;
-    }
-
-
-
     for(int n = 0; n < N; n++) {
         for(int h = 0; h < IH; h++) {
             for(int w = 0; w < IW; w++) {
@@ -58,7 +47,7 @@ int inference(
                     int sh = h - (KH / 2);
                     int sw = w - (KW / 2);
 
-                    float temp = 0;
+                    int32_t temp = 0;
 
                     for(int kh = 0; kh < KH; kh++) {
                         for(int kw = 0; kw < KW; kw++) {
@@ -77,15 +66,7 @@ int inference(
                     }
                     
                     *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = temp;
-                    if(KW == 7 && !oc) {
-                        printf("%f ", temp);
-                    }
                 }
-
-            }
-            
-            if(KW == 7) {
-                return 0;
             }
         }
     }
