@@ -1,5 +1,9 @@
 #include <time.h>
 
+// for debugging
+#include <string.h>
+#include <stdio.h>
+
 double benchmark(
     float *tensorIn,
     float *kernel,
@@ -34,7 +38,17 @@ int inference(
     int KH, int KW
 )
 {
-    // printf("N: %d, IH: %d, IW: %d, IC: %d, OC: %d, KH: %d, KW: %d\n", N, IH, IW, IC, OC, KH, KW);
+    
+    // for debugging
+    if(KW == 7) {
+        printf("N: %d, IH: %d, IW: %d, IC: %d, OC: %d, KH: %d, KW: %d\n", N, IH, IW, IC, OC, KH, KW);
+        for(int i = 0; i < N*IH*IW*IC; i++)
+            tensorIn[i] = 1.0;
+        for(int i = 0; i < OC*KH*KW*IC; i++)
+            kernel[i] = 1.0;
+    }
+
+
 
     for(int n = 0; n < N; n++) {
         for(int h = 0; h < IH; h++) {
@@ -46,10 +60,9 @@ int inference(
 
                     float temp = 0;
 
-                    for(int ic = 0; ic < IC; ic++) {
-                        for(int kh = 0; kh < KH; kh++) {
-                            for(int kw = 0; kw < KW; kw++) {
-
+                    for(int kh = 0; kh < KH; kh++) {
+                        for(int kw = 0; kw < KW; kw++) {
+                            for(int ic = 0; ic < IC; ic++) {
                                 if(
                                     (sh + kh) >= 0 && 
                                     (sh + kh) < IH &&
@@ -64,7 +77,15 @@ int inference(
                     }
                     
                     *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = temp;
+                    if(KW == 7 && !oc) {
+                        printf("%f ", temp);
+                    }
                 }
+
+            }
+            
+            if(KW == 7) {
+                return 0;
             }
         }
     }
