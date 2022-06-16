@@ -1,6 +1,10 @@
 #include <time.h>
 #include <stdint.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <memory.h>
+
 double benchmark(
     int32_t *tensorIn,
     int32_t *kernel,
@@ -28,8 +32,8 @@ double benchmark(
 
 
 // converts kernel into matrix, gets element in row r and column c of converted matrix
-int32_t c_ker(int r, int c, int32_t* st, int OC, int IC, int KH, int KW) {
-    return *(st + r * KH*KW*IC + ((c % IC) / KW) * KW*IC + ((c % IC) % KH) * IC + (c / IC));
+int32_t c_ker(int r, int c, int32_t* st, int IC, int KH, int KW) {
+    return *(st + r * (KH*KW*IC) + ((c % (KH*KW)) / KW) * (KW*IC) + ((c % (KH*KW)) % KW) * IC + (c / (KH*KW)));
 }
 
 // converts input into matrix, gets element in row r and column c of converted matrix
@@ -42,8 +46,8 @@ int32_t c_in(int n, int r, int c, int32_t* st, int IH, int IW, int IC, int KH, i
     
     // first element should be ((c / IH) - (KH / 2), (c % IH) - (KW / 2))
     // r % IC is the index with in kernel
-    const int h = (c / IH) - (KH / 2) + ((r % IC) / KH); 
-    const int w = (c % IH) - (KW / 2) + ((r % IC) % KH);
+    const int h = (c / IW) - (KH / 2) + ((r % (KH*KW)) / KW); 
+    const int w = (c % IW) - (KW / 2) + ((r % (KH*KW)) % KW);
 
     if(h < 0 || h >= IH || w < 0 || w >= IW) { // padding
         return 0;
@@ -63,24 +67,46 @@ int inference(
 )
 {
     /* Code Starts Here */
+
+    memset(tensorOut, 0, sizeof(int32_t)*N*IH*IW*OC);
     for(int n = 0; n < N; n++) {
-        for(int ih = 0; ih < IH; ih++) {
-            for(int iw = 0; iw < IW; iw++) {
-                for(int oc = 0; oc < OC; oc++) {
-
-                    int32_t temp = 0;
-
-                    for(int r = 0; r < KH*KW*IC; r++) {
-                        for(int c = 0; c < IH*IW; c++) {
-                            temp += c_in(n, r, c, tensorIn, IH, IW, IC, KH, KW) * c_ker(oc, r, kernel, OC, IC, KH, KW);
-                        }
-                    }
-
-                    *(tensorOut + n * IH*IW*OC + ih * IW*OC + iw * OC + oc) = temp;
+        for(int oc = 0; oc < OC; oc++) {
+            for(int i = 0; i < KH*KW*IC; i++) {
+                for(int j = 0; j < IH*IW; j++) {
+                    *(tensorOut + n * IH*IW*OC + (j / IW) * IW*OC + (j % IW) * OC + oc) += c_ker(oc, i, kernel, IC, KH, KW) * c_in(n, i, j, tensorIn, IH, IW, IC, KH, KW);
                 }
             }
         }
     }
+
+    // test code for kernel transformation
+    // oc = 2 kh = 2 kw = 2 ic = 3
+    // int ker[] = { 0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11, 12, 16, 20, 13, 17, 21, 14, 18, 22, 15, 19, 23 };
+        
+
+    // for(int r = 0; r < 2; r++) {
+    //     for(int c = 0; c < 12; c++) {
+    //         printf("%d ", c_ker(r, c, ker, 2, 3, 2, 2));
+    //     }
+    //     printf("\n");
+    // }
+
+    // while(1);
+
+
+    // test code for image transformation
+    // N = 1, H = 3, W = 3, IC = 3
+    // int img[] = { 1, 10, 19, 2, 11, 20, 3, 12, 21, 4, 13, 22, 5, 14, 23, 6, 15, 24, 7, 16, 25, 8, 17, 26, 9, 18, 27 };
+        
+
+    // for(int r = 0; r < 3*3*3; r++) {
+    //     for(int c = 0; c < 9; c++) {
+    //         printf("%d ", c_in(0, r, c, img, 3, 3, 3, 3, 3));
+    //     }
+    //     printf("\n");
+    // }
+
+    // while(1);
 
 
 
