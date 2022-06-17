@@ -3,7 +3,21 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <memory.h>
+
+#define NUM_THREAD 4
+
+int32_t _kernel[4][8196];
+int32_t * _tensorIn,
+int _N;
+int _IH;
+int _IW; 
+int _IC; 
+int _OC;
+int _KH; 
+int _KW;
+
 
 double benchmark(
     int32_t *tensorIn,
@@ -57,6 +71,16 @@ int32_t c_in(int n, int r, int c, int32_t* st, int IH, int IW, int IC, int KH, i
     }
 }
 
+void* foo(void* args) {
+
+
+
+
+
+
+    pthread_exit(NULL);
+}
+
 int inference(
     int32_t *tensorIn,
     int32_t *kernel,
@@ -67,49 +91,32 @@ int inference(
 )
 {
     /* Code Starts Here */
+    
+    _N = N;
+    _IH = IH; 
+    _IW = IW; 
+    _IC = IC; 
+    _OC = OC;
+    _KH = KH; 
+    _KW = KW;
+    _tensorIn = tensorIn;
 
-    memset(tensorOut, 0, sizeof(int32_t)*N*IH*IW*OC);
-    for(int n = 0; n < N; n++) {
-        for(int oc = 0; oc < OC; oc++) {
-            for(int i = 0; i < KH*KW*IC; i++) {
-                for(int j = 0; j < IH*IW; j++) {
-                    *(tensorOut + n * IH*IW*OC + (j / IW) * IW*OC + (j % IW) * OC + oc) += c_ker(oc, i, kernel, IC, KH, KW) * c_in(n, i, j, tensorIn, IH, IW, IC, KH, KW);
-                }
-            }
-        }
+    // split kernel into NUM_THREAD for multithreading
+    for(int oc = 0; oc < OC; oc++) {   
+        memcpy(_kernel[oc / (OC / NUM_THREAD)], kernel + oc*KH*KW*IC, sizeof(int32_t)*KH*KW*IC);
     }
 
-    // test code for kernel transformation
-    // oc = 2 kh = 2 kw = 2 ic = 3
-    // int ker[] = { 0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11, 12, 16, 20, 13, 17, 21, 14, 18, 22, 15, 19, 23 };
-        
-
-    // for(int r = 0; r < 2; r++) {
-    //     for(int c = 0; c < 12; c++) {
-    //         printf("%d ", c_ker(r, c, ker, 2, 3, 2, 2));
-    //     }
-    //     printf("\n");
-    // }
-
-    // while(1);
-
-
-    // test code for image transformation
-    // N = 1, H = 3, W = 3, IC = 3
-    // int img[] = { 1, 10, 19, 2, 11, 20, 3, 12, 21, 4, 13, 22, 5, 14, 23, 6, 15, 24, 7, 16, 25, 8, 17, 26, 9, 18, 27 };
-        
-
-    // for(int r = 0; r < 3*3*3; r++) {
-    //     for(int c = 0; c < 9; c++) {
-    //         printf("%d ", c_in(0, r, c, img, 3, 3, 3, 3, 3));
-    //     }
-    //     printf("\n");
-    // }
-
-    // while(1);
+    for(int n = 0; n < N; n++) {
 
 
 
+
+
+
+
+
+
+    }
 
     return 0;
     /* Code Ends Here */
