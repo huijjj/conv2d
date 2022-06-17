@@ -9,6 +9,7 @@
 #define NUM_THREAD 4
 
 int32_t _kernel[4][8196];
+int32_t _out[4][1024];
 int32_t * _tensorIn,
 int _N;
 int _IH;
@@ -71,10 +72,28 @@ int32_t c_in(int n, int r, int c, int32_t* st, int IH, int IW, int IC, int KH, i
     }
 }
 
-void* foo(void* args) {
+void* foo(void* _dst) {
+    int32_t* dst = _dst;
 
 
-
+    int32_t temp = 0;
+    for(int kh = 0; kh < KH; kh++) {
+        for(int kw = 0; kw < KW; kw++) {
+            for(int ic = 0; ic < IC; ic++) {
+                if(
+                    (sh + kh) >= 0 && 
+                    (sh + kh) < IH &&
+                    (sw + kw) >= 0 &&
+                    (sw + kw) < IW) {
+                    temp = temp + 
+                        *(in + n * IH*IW*IC + (sh + kh) * IW*IC + (sw + kw) * IC + ic) * 
+                        *(ker + oc * KH*KW*IC + kh * KW*IC + kw * IC + ic);
+                }
+            }
+        }
+    }
+    
+    *(dst) = temp;
 
 
 
