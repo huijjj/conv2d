@@ -29,7 +29,7 @@ double benchmark(
     int KH, int KW
 )
 {
-    int num_iter = 1; // originally 500
+    int num_iter = 500; // originally 500
 
     struct timespec start, end;
     double total_time = 0;
@@ -83,15 +83,18 @@ void* conv(void* arg) {
     int n = ((args *)arg)->n;    
     int32_t* _out = (int32_t*)malloc(sizeof(int32_t)*_IW*_IH*(_OC/NUM_THREAD));
     *(((args *)arg)->out) = _out;
+    int sh;
+    int sw;
+    int32_t temp;
 
     for(int h = 0; h < _IH; h++) {
         for(int w = 0; w < _IW; w++) {
-            int sh = h - (_KH / 2);
-            int sw = w - (_KW / 2);
+            sh = h - (_KH / 2);
+            sw = w - (_KW / 2);
 
             for(int oc = 0; oc < (_OC / NUM_THREAD); oc++) {
 
-                int32_t temp = 0;
+                temp = 0;
                 for(int kh = 0; kh < _KH; kh++) {
                     for(int kw = 0; kw < _KW; kw++) {
                         for(int ic = 0; ic < _IC; ic++) {
@@ -101,14 +104,14 @@ void* conv(void* arg) {
                                 (sw + kw) >= 0 &&
                                 (sw + kw) < _IW) {
                                 temp = temp + 
-                                    *(_tensorIn + n * _IH*_IW*_IC + (sh + kh) * _IW*_IC + (sw + kw) * _IC + ic) * 
+                                    _tensorIn[n * _IH*_IW*_IC + (sh + kh) * _IW*_IC + (sw + kw) * _IC + ic] * 
                                     _kernel[(oc + t * (_OC/NUM_THREAD)) * _KH*_KW*_IC + kh * _KW*_IC + kw * _IC + ic];
                             }
                         }
                     }
                 }
                 
-                *(_out + h * _IW*(_OC / NUM_THREAD) + w * (_OC / NUM_THREAD) + oc) = temp;
+                _out[h * _IW*(_OC / NUM_THREAD) + w * (_OC / NUM_THREAD) + oc] = temp;
             }
         }
     }
@@ -169,16 +172,20 @@ int inference(
             for(int w = 0; w < IW; w++) {
                 for(int oc = 0; oc < OC; oc++) {
                     if(oc < (OC / NUM_THREAD)) {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(a_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc);    
+                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
+                            = a_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc];
                     }
                     else if(oc < (2 * (OC / NUM_THREAD))) {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(b_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD));    
+                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
+                            = b_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];
                     }
                     else if(oc < (3 * (OC / NUM_THREAD))) {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(c_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD));    
+                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
+                            = c_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
                     }
                     else {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(d_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD));    
+                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
+                            = d_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
                     }
                 }
             }
