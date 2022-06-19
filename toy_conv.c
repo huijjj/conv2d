@@ -8,17 +8,17 @@
 
 #define NUM_THREAD 4
 
+int32_t* a_out;
 int32_t a_kernel[25088];
-int32_t a_out[16384];
 
+int32_t* b_out;
 int32_t b_kernel[25088];
-int32_t b_out[16384];
 
+int32_t* c_out;
 int32_t c_kernel[25088];
-int32_t c_out[16384];
 
+int32_t* d_out;
 int32_t d_kernel[25088];
-int32_t d_out[16384];
 
 int32_t* _tensorIn;
 int32_t* _tensorOut;
@@ -92,26 +92,25 @@ void* foo(void* arg) {
     int t = ((args *)arg)->tid;
     int n = ((args *)arg)->n;
     // int32_t* dst = _out[t];
-    int32_t* _out;
     int32_t* _kernel;
+    int32_t* _out;
 
     if(t == 0) {
         _kernel = a_kernel;
-        _out = a_out;
+        _out = a_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
     }
     else if(t == 1) {
         _kernel = b_kernel;
-        _out = b_out;
+        _out = b_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
     }
     else if(t == 2) {
         _kernel = c_kernel;
-        _out = c_out;
+        _out = c_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
     }
     else {
         _kernel = d_kernel;
-        _out = d_out;
+        _out = d_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
     }
-
 
     for(int h = 0; h < _IH; h++) {
         for(int w = 0; w < _IW; w++) {
@@ -155,8 +154,7 @@ int inference(
 )
 {
     /* Code Starts Here */
-    printf("N: %d, IH: %d, IW: %d, IC: %d, OC: %d, KH: %d, KW: %d\n", N, IH, IW, IC, OC, KH, KW);
-
+    // printf("N: %d, IH: %d, IW: %d, IC: %d, OC: %d, KH: %d, KW: %d\n", N, IH, IW, IC, OC, KH, KW);
 
     _N = N;
     _IH = IH; 
