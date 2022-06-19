@@ -8,20 +8,9 @@
 
 #define NUM_THREAD 4
 
-int32_t* a_out;
-int32_t a_kernel[25088];
-
-int32_t* b_out;
-int32_t b_kernel[25088];
-
-int32_t* c_out;
-int32_t c_kernel[25088];
-
-int32_t* d_out;
-int32_t d_kernel[25088];
-
 int32_t* _tensorIn;
-int32_t* _tensorOut;
+int32_t* _kernel;
+
 int _N;
 int _IH;
 int _IW; 
@@ -86,31 +75,14 @@ int32_t c_in(int n, int r, int c, int32_t* st, int IH, int IW, int IC, int KH, i
 typedef struct {
     int tid ;
     int n;
+    int32_t** out;
 } args;
 
-void* foo(void* arg) {
+void* conv(void* arg) {
     int t = ((args *)arg)->tid;
-    int n = ((args *)arg)->n;
-    // int32_t* dst = _out[t];
-    int32_t* _kernel;
-    int32_t* _out;
-
-    if(t == 0) {
-        _kernel = a_kernel;
-        _out = a_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
-    }
-    else if(t == 1) {
-        _kernel = b_kernel;
-        _out = b_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
-    }
-    else if(t == 2) {
-        _kernel = c_kernel;
-        _out = c_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
-    }
-    else {
-        _kernel = d_kernel;
-        _out = d_out = malloc(sizeof(int32_t)*(_OC/NUM_THREAD)*_IW*_IH);
-    }
+    int n = ((args *)arg)->n;    
+    int32_t* _out = (int32_t*)malloc(sizeof(int32_t)*_IW*_IH*(_OC/NUM_THREAD));
+    *(((args *)arg)->out) = _out;
 
     for(int h = 0; h < _IH; h++) {
         for(int w = 0; w < _IW; w++) {
@@ -130,13 +102,13 @@ void* foo(void* arg) {
                                 (sw + kw) < _IW) {
                                 temp = temp + 
                                     *(_tensorIn + n * _IH*_IW*_IC + (sh + kh) * _IW*_IC + (sw + kw) * _IC + ic) * 
-                                    _kernel[oc * _KH*_KW*_IC + kh * _KW*_IC + kw * _IC + ic];
+                                    _kernel[(oc + t * (_OC/NUM_THREAD)) * _KH*_KW*_IC + kh * _KW*_IC + kw * _IC + ic];
                             }
                         }
                     }
                 }
                 
-                _out[h * _IW*(_OC / NUM_THREAD) + w * (_OC / NUM_THREAD) + oc] = temp;
+                *(_out + h * _IW*(_OC / NUM_THREAD) + w * (_OC / NUM_THREAD) + oc) = temp;
             }
         }
     }
@@ -164,36 +136,29 @@ int inference(
     _KH = KH; 
     _KW = KW;
     _tensorIn = tensorIn;
-    _tensorOut = tensorOut;
+    _kernel = kernel;
 
-    // split kernel into NUM_THREAD for multithreading
-    memcpy(a_kernel, kernel, sizeof(int32_t)*(OC/NUM_THREAD)*KH*KW*IC);
-    memcpy(b_kernel, kernel + 1*(OC/NUM_THREAD)*KH*KW*IC, sizeof(int32_t)*(OC/NUM_THREAD)*KH*KW*IC);
-    memcpy(c_kernel, kernel + 2*(OC/NUM_THREAD)*KH*KW*IC, sizeof(int32_t)*(OC/NUM_THREAD)*KH*KW*IC);
-    memcpy(d_kernel, kernel + 3*(OC/NUM_THREAD)*KH*KW*IC, sizeof(int32_t)*(OC/NUM_THREAD)*KH*KW*IC);
-
-
-
-    // for(int n = 0; n < N; n++) {
     for(int n = 0; n < N; n++) {
-
-        pthread_t a;
-        pthread_t b;
-        pthread_t c;
-        pthread_t d;
-        args a_arg = { 0, n };
-        args b_arg = { 1, n };
-        args c_arg = { 2, n };
-        args d_arg = { 3, n };
-        pthread_create(&a, NULL, foo, &a_arg);
-        pthread_create(&b, NULL, foo, &b_arg);
-        pthread_create(&c, NULL, foo, &c_arg);
-        pthread_create(&d, NULL, foo, &d_arg);
-
         int a_st;
         int b_st;
         int c_st;
         int d_st;
+        pthread_t a;
+        pthread_t b;
+        pthread_t c;
+        pthread_t d;
+        int32_t* a_out = NULL;
+        int32_t* b_out = NULL;
+        int32_t* c_out = NULL;
+        int32_t* d_out = NULL;
+        args a_arg = { 0, n, &a_out };
+        args b_arg = { 1, n, &b_out };
+        args c_arg = { 2, n, &c_out };
+        args d_arg = { 3, n, &d_out };
+        pthread_create(&a, NULL, conv, &a_arg);
+        pthread_create(&b, NULL, conv, &b_arg);
+        pthread_create(&c, NULL, conv, &c_arg);
+        pthread_create(&d, NULL, conv, &d_arg);
         pthread_join(a, &a_st);
         pthread_join(b, &b_st);
         pthread_join(c, &c_st);
@@ -204,22 +169,27 @@ int inference(
             for(int w = 0; w < IW; w++) {
                 for(int oc = 0; oc < OC; oc++) {
                     if(oc < (OC / NUM_THREAD)) {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = a_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc];    
+                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(a_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc);    
                     }
                     else if(oc < (2 * (OC / NUM_THREAD))) {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = b_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
+                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(b_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD));    
                     }
                     else if(oc < (3 * (OC / NUM_THREAD))) {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = c_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
+                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(c_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD));    
                     }
                     else {
-                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = d_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
+                        *(tensorOut + n * IH*IW*OC + h * IW*OC + w * OC + oc) = *(d_out + h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD));    
                     }
                 }
             }
         }
 
+        free(a_out);
+        free(b_out);
+        free(c_out);
+        free(d_out);
     }
+
 
     return 0;
     /* Code Ends Here */
