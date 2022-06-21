@@ -19,6 +19,14 @@ int _OC;
 int _KH; 
 int _KW;
 
+int OUTSIZE;
+int TASKPERTHREAD;
+int IHIWIC;
+int IWIC;
+int KHKWIC;
+int KWIC;
+int IHIWOC;
+int IWOC;
 
 double benchmark(
     int32_t *tensorIn,
@@ -74,44 +82,43 @@ int32_t c_in(int n, int r, int c, int32_t* st, int IH, int IW, int IC, int KH, i
 
 typedef struct {
     int tid ;
-    int n;
     int32_t** out;
 } args;
 
 void* conv(void* arg) {
     int t = ((args *)arg)->tid;
-    int n = ((args *)arg)->n;    
-    int32_t* _out = (int32_t*)malloc(sizeof(int32_t)*_IW*_IH*(_OC/NUM_THREAD));
+    int32_t* _out = (int32_t*)malloc(OUTSIZE);
     *(((args *)arg)->out) = _out;
     int sh;
     int sw;
     int32_t temp;
 
-    for(int h = 0; h < _IH; h++) {
-        for(int w = 0; w < _IW; w++) {
-            sh = h - (_KH / 2);
-            sw = w - (_KW / 2);
+    for(int n = 0; n < TASKPERTHREAD; n++) {
+        for(int h = 0; h < _IH; h++) {
+            for(int w = 0; w < _IW; w++) {
+                sh = h - (_KH / 2);
+                sw = w - (_KW / 2);
 
-            for(int oc = 0; oc < (_OC / NUM_THREAD); oc++) {
-
-                temp = 0;
-                for(int kh = 0; kh < _KH; kh++) {
-                    for(int kw = 0; kw < _KW; kw++) {
-                        for(int ic = 0; ic < _IC; ic++) {
-                            if(
-                                (sh + kh) >= 0 && 
-                                (sh + kh) < _IH &&
-                                (sw + kw) >= 0 &&
-                                (sw + kw) < _IW) {
-                                temp = temp + 
-                                    _tensorIn[n * _IH*_IW*_IC + (sh + kh) * _IW*_IC + (sw + kw) * _IC + ic] * 
-                                    _kernel[(oc + t * (_OC/NUM_THREAD)) * _KH*_KW*_IC + kh * _KW*_IC + kw * _IC + ic];
+                for(int oc = 0; oc < _OC; oc++) {
+                    temp = 0;
+                    for(int kh = 0; kh < _KH; kh++) {
+                        for(int kw = 0; kw < _KW; kw++) {
+                            for(int ic = 0; ic < _IC; ic++) {
+                                if(
+                                    (sh + kh) >= 0 && 
+                                    (sh + kh) < _IH &&
+                                    (sw + kw) >= 0 &&
+                                    (sw + kw) < _IW) {
+                                    temp = temp + 
+                                        _tensorIn[(n + t * TASKPERTHREAD)*IHIWIC + (sh + kh) * IWIC + (sw + kw) * _IC + ic] * 
+                                        _kernel[oc * KHKWIC + kh * KWIC + kw * _IC + ic];
+                                }
                             }
                         }
                     }
+                    
+                    _out[n * IHIWOC + h * IWOC + w * _OC + oc] = temp;
                 }
-                
-                _out[h * _IW*(_OC / NUM_THREAD) + w * (_OC / NUM_THREAD) + oc] = temp;
             }
         }
     }
@@ -141,62 +148,54 @@ int inference(
     _tensorIn = tensorIn;
     _kernel = kernel;
 
-    for(int n = 0; n < N; n++) {
-        int a_st;
-        int b_st;
-        int c_st;
-        int d_st;
-        pthread_t a;
-        pthread_t b;
-        pthread_t c;
-        pthread_t d;
-        int32_t* a_out = NULL;
-        int32_t* b_out = NULL;
-        int32_t* c_out = NULL;
-        int32_t* d_out = NULL;
-        args a_arg = { 0, n, &a_out };
-        args b_arg = { 1, n, &b_out };
-        args c_arg = { 2, n, &c_out };
-        args d_arg = { 3, n, &d_out };
-        pthread_create(&a, NULL, conv, &a_arg);
-        pthread_create(&b, NULL, conv, &b_arg);
-        pthread_create(&c, NULL, conv, &c_arg);
-        pthread_create(&d, NULL, conv, &d_arg);
-        pthread_join(a, &a_st);
-        pthread_join(b, &b_st);
-        pthread_join(c, &c_st);
-        pthread_join(d, &d_st);
+    IWIC = IW*IC;
+    IHIWIC = IH*IWIC;
+    KWIC = KW*IC;
+    KHKWIC = KH*KWIC;
+    IWOC = IW*OC;
+    IHIWOC = IH*IWOC;
+    
+    TASKPERTHREAD = N/NUM_THREAD;
+    OUTSIZE = sizeof(int32_t)*TASKPERTHREAD*IHIWOC;
 
-        // merge result
-        for(int h = 0; h < IH; h++) {
-            for(int w = 0; w < IW; w++) {
-                for(int oc = 0; oc < OC; oc++) {
-                    if(oc < (OC / NUM_THREAD)) {
-                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
-                            = a_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc];
-                    }
-                    else if(oc < (2 * (OC / NUM_THREAD))) {
-                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
-                            = b_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];
-                    }
-                    else if(oc < (3 * (OC / NUM_THREAD))) {
-                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
-                            = c_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
-                    }
-                    else {
-                        tensorOut[n * IH*IW*OC + h * IW*OC + w * OC + oc]
-                            = d_out[h * IW*(OC / NUM_THREAD) + w*(OC / NUM_THREAD) + oc % (OC / NUM_THREAD)];    
-                    }
-                }
-            }
-        }
+    int a_st;
+    int b_st;
+    int c_st;
+    int d_st;
+    pthread_t a;
+    pthread_t b;
+    pthread_t c;
+    pthread_t d;
+    int32_t* a_out = NULL;
+    int32_t* b_out = NULL;
+    int32_t* c_out = NULL;
+    int32_t* d_out = NULL;
+    args a_arg = { 0, &a_out };
+    args b_arg = { 1, &b_out };
+    args c_arg = { 2, &c_out };
+    args d_arg = { 3, &d_out };
+    pthread_create(&a, NULL, conv, &a_arg);
+    pthread_create(&b, NULL, conv, &b_arg);
+    pthread_create(&c, NULL, conv, &c_arg);
+    pthread_create(&d, NULL, conv, &d_arg);
+    pthread_join(a, &a_st);
+    pthread_join(b, &b_st);
+    pthread_join(c, &c_st);
+    pthread_join(d, &d_st);
 
-        free(a_out);
-        free(b_out);
-        free(c_out);
-        free(d_out);
-    }
 
+    memcpy(tensorOut, a_out, OUTSIZE);
+    tensorOut = tensorOut + TASKPERTHREAD*IHIWOC;
+    memcpy(tensorOut, b_out, OUTSIZE);
+    tensorOut = tensorOut + TASKPERTHREAD*IHIWOC;
+    memcpy(tensorOut, c_out, OUTSIZE);
+    tensorOut = tensorOut + TASKPERTHREAD*IHIWOC;
+    memcpy(tensorOut, d_out, OUTSIZE);
+
+    free(a_out);
+    free(b_out);
+    free(c_out);
+    free(d_out);
 
     return 0;
     /* Code Ends Here */
