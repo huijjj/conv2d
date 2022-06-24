@@ -9,6 +9,7 @@
 #define NUM_THREAD 4
 
 int32_t* _tensorIn;
+int32_t* _tensorOut;
 int32_t* _kernel;
 
 int _N;
@@ -87,8 +88,14 @@ typedef struct {
 
 void* conv(void* arg) {
     int t = ((args *)arg)->tid;
-    int32_t* _out = (int32_t*)malloc(OUTSIZE);
-    *(((args *)arg)->out) = _out;
+    int32_t* _out;
+    if(t) {
+        _out= (int32_t*)malloc(OUTSIZE);
+        *(((args *)arg)->out) = _out;
+    }
+    else {
+        _out = _tensorOut;
+    }
     int sh;
     int sw;
     int32_t temp;
@@ -146,6 +153,7 @@ int inference(
     _KH = KH; 
     _KW = KW;
     _tensorIn = tensorIn;
+    _tensorOut = tensorOut;
     _kernel = kernel;
 
     IWIC = IW*IC;
@@ -166,11 +174,11 @@ int inference(
     pthread_t b;
     pthread_t c;
     pthread_t d;
-    int32_t* a_out = NULL;
+    // int32_t* a_out = NULL;
     int32_t* b_out = NULL;
     int32_t* c_out = NULL;
     int32_t* d_out = NULL;
-    args a_arg = { 0, &a_out };
+    args a_arg = { 0, NULL };
     args b_arg = { 1, &b_out };
     args c_arg = { 2, &c_out };
     args d_arg = { 3, &d_out };
@@ -184,7 +192,7 @@ int inference(
     pthread_join(d, &d_st);
 
 
-    memcpy(tensorOut, a_out, OUTSIZE);
+    // memcpy(tensorOut, a_out, OUTSIZE);
     tensorOut = tensorOut + TASKPERTHREAD*IHIWOC;
     memcpy(tensorOut, b_out, OUTSIZE);
     tensorOut = tensorOut + TASKPERTHREAD*IHIWOC;
@@ -192,7 +200,7 @@ int inference(
     tensorOut = tensorOut + TASKPERTHREAD*IHIWOC;
     memcpy(tensorOut, d_out, OUTSIZE);
 
-    free(a_out);
+    // free(a_out);
     free(b_out);
     free(c_out);
     free(d_out);
