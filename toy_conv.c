@@ -6,6 +6,8 @@
 #include <pthread.h>
 #include <memory.h>
 #include <math.h>
+#include <arm_neon.h>
+
 
 #define NUMTHREAD 4
 #define UNUSED NULL
@@ -21,279 +23,92 @@ int _KW;
 int32_t* _tensorIn;
 int32_t* _kernel;
 
-/*
- * Generate Algorithm
- * matA a M*K matrix
- * matB a K*N matrix
- * matC a M*N matrix
- * matC = matA * matB
- */
-static void mm_generate(int32_t* matA,int32_t* matB,int32_t* matC,const int M,const int N,const int K)
+double benchmark(
+    int32_t *tensorIn,
+    int32_t *kernel,
+    int32_t *tensorOut,
+    int N,
+    int IH, int IW, int IC, int OC,
+    int KH, int KW
+)
 {
-	for (int i = 0; i < M;i++)
-	{
-		for (int j = 0; j < N;j++)
-		{
-			int32_t sum = 0;
-			for (int k = 0; k < K;k++)
-			{
-				sum += matA[i*K + k] * matB[k*N + j];
-			}
-			matC[i*N + j] = sum;
-		}
-	}
+    int num_iter = 500; // originally 500
+
+    struct timespec start, end;
+    double total_time = 0;
+
+    for (int eval_iter=0;eval_iter<num_iter;eval_iter++) {
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        inference(tensorIn, kernel, tensorOut, N, IH, IW, IC, OC, KH, KW);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+
+        total_time += (double)(end.tv_sec - start.tv_sec)*1000000 + (double)(end.tv_nsec - start.tv_nsec)/1000.0;
+    }
+
+    return total_time / (double)(num_iter);
 }
 
-/*
- * Strassen Algorithm
- * matA a M*K matrix
- * matB a K*N matrix
- * matC a M*N matrix
- * matC = matA * matB
- * M1 = (A11+A22)*(B11+B22)
- * M2 = (A21+A22)*B11
- * M3 = A11*(B12-B22)
- * M4 = A22*(B21-B11)
- * M5 = (A11+A12)*B22
- * M6 = (A21-A11)*(B11+B12)
- * M7 = (A12-A22)*(B21+B22)
- * C11 = M1+M4-M5+M7
- * C12 = M3+M5
- * C21 = M2+M4
- * C22 = M1-M2+M3+M6
- */
-static void mm_strassen(int32_t* matA, int32_t* matB, int32_t* matC, const int M, const int N, const int K)
-{
-	if ((M <= 2) || M%2 != 0 || N%2 != 0 || K%2!=0)
-	{
-		return mm_generate(matA, matB, matC, M, N, K);
-	}
 
-	int offset = 0;
-	//M1 = (A11+A22)*(B11+B22)
-	int32_t* M1 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M1_0 = (A11+A22)
-		int32_t * M1_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		offset = M*K / 2 + K / 2;
-		for (int i = 0; i < M / 2; i++)
-		{
-			for (int j = 0; j < K/2; j++)
-			{
-				const int baseIdx = i*K + j;
-				M1_0[i*K/2+j] = matA[baseIdx] + matA[baseIdx + offset];
-			}
-		}
-		//M1_1 = (B11+B22)
-		int32_t* M1_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-		offset = K*N / 2 + N / 2;
-		for (int i = 0; i < K / 2; i++)
-		{
-			for (int j = 0; j < N / 2; j++)
-			{
-				const int baseIdx = i*N + j;
-				M1_1[i*N/2+j] = matB[baseIdx] + matB[baseIdx + offset];
-			}
-		}
-		mm_strassen(&M1_0[0], &M1_1[0], &M1[0], M / 2, N / 2, K / 2);
+// converts kernel into matrix, gets element in row r and column c of converted matrix
+inline uint8_t c_ker(int r, int c, int32_t* st) {
+    return (uint8_t)(*(st + r * (_KH*_KW*_IC) + ((c % (_KH*_KW)) / _KW) * (_KW*_IC) + ((c % (_KH*_KW)) % _KW) * _IC + (c / (_KH*_KW))));
+}
 
-		free(M1_0);         M1_0=NULL;
-		free(M1_1);         M1_1=NULL;
-	}
+// converts input into matrix, gets element in row r and column c of converted matrix
+inline uint8_t c_in(int n, int r, int c, int32_t* st) {
+    // element at (r , c) gets multiplied with (x, r) element in columnized kernel
+    // and will be added up to element at (c / IH, c % IH, c), (H, W, C) at output
 
-	//M2 = (A21+A22)*B11
-	int32_t* M2 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M2_0 = (A21+A22)
-		int32_t* M2_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		offset = K / 2;
-		for (int i = M / 2; i < M; i++)
-		{
-			for (int j = 0; j < K / 2; j++)
-			{
-				const int baseIdx = i*K + j;
-				M2_0[(i-M/2)*K/2+j] = matA[baseIdx] + matA[baseIdx + offset];
-			}
-		}
-		//M2_1 = B11
-        int32_t* M2_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-        for(int i = 0; i < K / 2; i++) {
-            for(int j = 0; j < N / 2; j++){
-                M2_1[i * N/2 + j] = matB[i * N + j];
-            }
+    // we want (h, w, ic) of original input
+    // ic == r / (KH * KW)
+    
+    // first element should be ((c / IH) - (KH / 2), (c % IH) - (KW / 2))
+    // r % IC is the index with in kernel
+    const int h = (c / _IW) - (_KH / 2) + ((r % (_KH*_KW)) / _KW); 
+    const int w = (c % _IW) - (_KW / 2) + ((r % (_KH*_KW)) % _KW);
+
+
+    return (h < 0 || h >= _IH || w < 0 || w >= _IW) ? 0 : (uint8_t)(*(st + n * _IH*_IW*_IC + h * _IW*_IC + w * _IC + (r / (_KH*_KW))));
+}
+
+typedef struct {
+    int t;
+    int n;
+    void** out;
+    void** in;
+    void* ker;
+} args;
+
+
+void* img2col(void* arg) {
+    int t = ((args*)arg)->t;
+    int n = ((args*)arg)->n;
+    uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_IH * _IW / NUMTHREAD) * _IC * _KH * _KW);
+    
+    *(((args*)arg)->out) = _out;
+
+    for(int r = 0; r < (_IH*_IW / NUMTHREAD); r++) {
+        for(int c = 0; c < _IC*_KH*_KW; c++) {
+            _out[r * _IC*_KH*_KW + c] = c_in(n, c, r + t * (_IH * _IW / NUMTHREAD), _tensorIn);
         }
-		mm_strassen(&M2_0[0], &M2_1[0], &M2[0], M / 2, N / 2, K / 2);
+    }
 
-		free(M2_0);         M2_0=NULL;
-		free(M2_1);         M2_1=NULL;
-	}
+    pthread_exit(NULL);
+}
 
-	//M3 = A11*(B12-B22)
-	int32_t* M3 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M3_0 = A11
-		int32_t* M3_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		for(int i = 0; i < M / 2; i++){
-            for(int j = 0; j < K / 2; j++){
-                M3_0[i * K/2 + j] = matA[i * K + j];
-            }
-		}
-		//M3_1 = (B12-B22)
-		int32_t* M3_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-		offset = K*N / 2;
-		for (int i = 0; i < K/2; i++)
-		{
-			for (int j = N/2; j < N; j++)
-			{
-				const int baseIdx = i*N + j;
-				M3_1[i*N/2+j-N/2] = matB[baseIdx] - matB[baseIdx + offset];
-			}
-		}
-		mm_strassen(&M3_0[0], &M3_1[0], &M3[0], M / 2, N / 2, K / 2);
+void* ker2col(void* arg) {
+    int t = ((args*)arg)->t;
+    uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_OC / NUMTHREAD) * _IC * _KH * _KW);
 
-		free(M3_0);         M3_0=NULL;
-		free(M3_1);         M3_1=NULL;
-	}
+    *(((args*)arg)->out) = _out;
 
-	//M4 = A22*(B21-B11)
-	int32_t* M4 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M4_0 = A22
-		int32_t* M4_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		for(int i = M / 2; i < M; i++){
-            for(int j = K / 2; j < K; j++){
-                M4_0[(i-M/2) * K/2 + j - K/2] = matA[i * K + j];
-            }
-		}
-		//M4_1 = (B21-B11)
-		int32_t* M4_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-		offset = N*K/2;
-		for (int i = 0; i < K / 2; i++)
-		{
-			for (int j = 0; j < N/2; j++)
-			{
-				const int baseIdx = i*N + j;
-				M4_1[i*N/2 + j] = matB[baseIdx + offset] - matB[baseIdx];
-			}
-		}
-		mm_strassen(&M4_0[0], &M4_1[0], &M4[0], M / 2, N / 2, K / 2);
+    for(int r = 0; r < (_OC / NUMTHREAD); r++) {
+        for(int c = 0; c < _IC*_KH*_KW; c++) {
+            _out[r*_IC*_KH*_KW + c] = c_ker(r + t * (_OC/NUMTHREAD), c, _kernel);
+        }
+    }
 
-		free(M4_0);         M4_0=NULL;
-		free(M4_1);         M4_1=NULL;
-	}
-
-	//M5 = (A11+A12)*B22
-	int32_t* M5 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M5_0 = (A11+A12)
-		int32_t* M5_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		offset = K / 2;
-		for (int i = 0; i < M/2; i++)
-		{
-			for (int j = 0; j < K / 2; j++)
-			{
-				const int baseIdx = i*K + j;
-				M5_0[i*K / 2 + j] = matA[baseIdx] + matA[baseIdx + offset];
-			}
-		}
-		//M5_1 = B22
-		int32_t* M5_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-		offset = N*K/2 + N/2;
-		for(int i = 0; i < K / 2; i++){
-            for(int j = 0; j < N / 2; j++){
-                M5_1[i * N/2 + j] = matB[i * N + j + offset];
-            }
-		}
-		mm_strassen(&M5_0[0], &M5_1[0], &M5[0], M / 2, N / 2, K / 2);
-
-		free(M5_0);         M5_0=NULL;
-		free(M5_1);         M5_1=NULL;
-	}
-
-	//M6 = (A21-A11)*(B11+B12)
-	int32_t* M6 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M6_0 = (A21-A11)
-		int32_t* M6_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		offset = K * M / 2;
-		for (int i = 0; i < M / 2; i++)
-		{
-			for (int j = 0; j < K/2; j++)
-			{
-				const int baseIdx = i*K + j;
-				M6_0[i*K/2+j] = matA[baseIdx + offset] - matA[baseIdx];
-			}
-		}
-		//M6_1 = (B11+B12)
-		int32_t* M6_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-		offset = N / 2;
-		for (int i = 0; i < K / 2; i++)
-		{
-			for (int j = 0; j < N/2; j++)
-			{
-				const int baseIdx = i*N + j;
-				M6_1[i*N/2+j] = matB[baseIdx] + matB[baseIdx + offset];
-			}
-		}
-		mm_strassen(&M6_0[0], &M6_1[0], &M6[0], M / 2, N / 2, K / 2);
-
-		free(M6_0);         M6_0=NULL;
-		free(M6_1);         M6_1=NULL;
-	}
-
-	//M7 = (A12-A22)*(B21+B22)
-	int32_t* M7 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
-	{
-		//M7_0 = (A12-A22)
-		int32_t* M7_0 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-		offset = M*K / 2;
-		for (int i = 0; i < M / 2; i++)
-		{
-			for (int j = K/2; j < K; j++)
-			{
-				const int baseIdx = i*K + j;
-				M7_0[i*K / 2 + j - K / 2] = matA[baseIdx] - matA[baseIdx + offset];
-			}
-		}
-		//M7_1 = (B21+B22)
-		int32_t* M7_1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-		offset = N / 2;
-		for (int i = K/2; i < K; i++)
-		{
-			for (int j = 0; j < N / 2; j++)
-			{
-				const int baseIdx = i*N + j;
-				M7_1[(i-K/2)*N / 2 + j] = matB[baseIdx] + matB[baseIdx + offset];
-			}
-		}
-		mm_strassen(&M7_0[0], &M7_1[0], &M7[0], M / 2, N / 2, K / 2);
-
-		free(M7_0);         M7_0=NULL;
-		free(M7_1);         M7_1=NULL;
-	}
-
-	for (int i = 0; i < M / 2;i++)
-	{
-		for (int j = 0; j < N / 2;j++)
-		{
-			const int idx = i*N / 2 + j;
-			//C11 = M1+M4-M5+M7
-			matC[i*N + j] = M1[idx] + M4[idx] - M5[idx] + M7[idx];
-			//C12 = M3+M5
-			matC[i*N + j + N/2] = M3[idx] + M5[idx];
-			//C21 = M2+M4
-			matC[(i+M/2)*N + j] = M2[idx] + M4[idx];
-			//C22 = M1-M2+M3+M6
-			matC[(i+M/2)*N + j + N/2] = M1[idx] - M2[idx] + M3[idx] + M6[idx];
-		}
-	}
-	free(M1);           M1=NULL;
-	free(M2);           M2=NULL;
-	free(M3);           M3=NULL;
-	free(M4);           M4=NULL;
-	free(M5);           M5=NULL;
-	free(M6);           M6=NULL;
-	free(M7);           M7=NULL;
+    pthread_exit(NULL);
 }
 
 /*
@@ -302,7 +117,7 @@ static void mm_strassen(int32_t* matA, int32_t* matB, int32_t* matC, const int M
  * strideB is the col num of matB, initial value is N
  * strideC is the col num of matC, initial value is N
  */
-static void mm_generate(int32_t* matA, int32_t* matB, int32_t* matC, const int M, const int N, const int K,
+inline static void mm_generate(int32_t* matA, int32_t* matB, int32_t* matC, const int M, const int N, const int K,
                         const int strideA, const int strideB, const int strideC){
     for(int i = 0; i < M; i++){
         for(int j = 0; j < N; j++){
@@ -336,16 +151,16 @@ static void mm_generate(int32_t* matA, int32_t* matB, int32_t* matC, const int M
  * C21 = U6
  * C22 = U7
  */
-static void mm_CoppersmithWinograd(int32_t* matA, int32_t* matB, int32_t* matC, const int M, const int N, const int K,
+inline static void mm_CoppersmithWinograd(float* matA, float* matB, float* matC, const int M, const int N, const int K,
                              const int strideA, const int strideB, const int strideC){
     if((M <= 2) || (M%2 != 0 || N%2 != 0 || K%2 != 0)){
         return mm_generate(matA, matB, matC, M, N, K, strideA, strideB, strideC);
     }
 
-    int32_t* S1 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-    int32_t* S2 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-    int32_t* S3 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
-    int32_t* S4 = (int32_t*) malloc((M/2) * (K/2) * sizeof(int32_t));
+    float* S1 = (float*) malloc((M/2) * (K/2) * sizeof(float));
+    float* S2 = (float*) malloc((M/2) * (K/2) * sizeof(float));
+    float* S3 = (float*) malloc((M/2) * (K/2) * sizeof(float));
+    float* S4 = (float*) malloc((M/2) * (K/2) * sizeof(float));
     {
         for(int i = 0; i < M/2; i++){
             for(int j = 0; j < K/2; j++){
@@ -371,10 +186,10 @@ static void mm_CoppersmithWinograd(int32_t* matA, int32_t* matB, int32_t* matC, 
         }
     }
 
-    int32_t* T1 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-    int32_t* T2 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-    int32_t* T3 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
-    int32_t* T4 = (int32_t*) malloc((K/2) * (N/2) * sizeof(int32_t));
+    float* T1 = (float*) malloc((K/2) * (N/2) * sizeof(float));
+    float* T2 = (float*) malloc((K/2) * (N/2) * sizeof(float));
+    float* T3 = (float*) malloc((K/2) * (N/2) * sizeof(float));
+    float* T4 = (float*) malloc((K/2) * (N/2) * sizeof(float));
     {
         for(int i = 0; i < K/2; i++){
             for(int j = 0; j < N/2; j++){
@@ -402,31 +217,31 @@ static void mm_CoppersmithWinograd(int32_t* matA, int32_t* matB, int32_t* matC, 
     }
 
     //M1 = A11 * B11
-    int32_t* M1 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M1 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(matA, matB, &M1[0], M/2, N/2, K/2, strideA, strideB, N/2);
 
     //M2 = A12 * B21
-    int32_t* M2 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M2 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(&matA[K/2], &matB[(K/2)*strideB], &M2[0], M/2, N/2, K/2, strideA, strideB, N/2);
 
     //M3 = S4 * B22
-    int32_t* M3 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M3 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(&S4[0], &matB[(K/2) * strideB + (N/2)], &M3[0], M/2, N/2, K/2, K/2, strideB, N/2);
 
     //M4 = A22 * T4
-    int32_t* M4 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M4 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(&matA[(M/2) * strideA + (K/2)], &T4[0], &M4[0], M/2, N/2, K/2, strideA, N/2, N/2);
 
     //M5 = S1 * T1
-    int32_t* M5 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M5 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(&S1[0], &T1[0], &M5[0], M/2, N/2, K/2, K/2, N/2, N/2);
 
     //M6 = S2 * T2
-    int32_t* M6 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M6 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(&S2[0], &T2[0], &M6[0], M/2, N/2, K/2, K/2, N/2, N/2);
 
     //M7 = S3 * T3
-    int32_t* M7 = (int32_t*) malloc((M/2) * (N/2) * sizeof(int32_t));
+    float* M7 = (float*) malloc((M/2) * (N/2) * sizeof(float));
     mm_CoppersmithWinograd(&S3[0], &T3[0], &M7[0], M/2, N/2, K/2, K/2, N/2, N/2);
 
     //C11 = U1 = M1 + M2
@@ -459,125 +274,36 @@ static void mm_CoppersmithWinograd(int32_t* matA, int32_t* matB, int32_t* matC, 
     free(M7);           M7=NULL;
 }
 
-static void mm_CoppersmithWinograd(int32_t* matA, int32_t* matB, int32_t* matC, const int M, const int N, const int K){
+inline static void _mm_CoppersmithWinograd(float* matA, float* matB, float* matC, const int M, const int N, const int K){
     mm_CoppersmithWinograd(matA, matB, matC, M, N, K, K, N, N);
 }
 
 
-double benchmark(
-    int32_t *tensorIn,
-    int32_t *kernel,
-    int32_t *tensorOut,
-    int N,
-    int IH, int IW, int IC, int OC,
-    int KH, int KW
-)
-{
-    int num_iter = 500; // originally 500
-
-    struct timespec start, end;
-    double total_time = 0;
-
-    for (int eval_iter=0;eval_iter<num_iter;eval_iter++) {
-        clock_gettime(CLOCK_MONOTONIC, &start);
-        inference(tensorIn, kernel, tensorOut, N, IH, IW, IC, OC, KH, KW);
-        clock_gettime(CLOCK_MONOTONIC, &end);
-
-        total_time += (double)(end.tv_sec - start.tv_sec)*1000000 + (double)(end.tv_nsec - start.tv_nsec)/1000.0;
-    }
-
-    return total_time / (double)(num_iter);
-}
-
-
-// converts kernel into matrix, gets element in row r and column c of converted matrix
-int32_t c_ker(int r, int c, int32_t* st) {
-    return *(st + r * (_KH*_KW*_IC) + ((c % (_KH*_KW)) / _KW) * (_KW*_IC) + ((c % (_KH*_KW)) % _KW) * _IC + (c / (_KH*_KW)));
-}
-
-// converts input into matrix, gets element in row r and column c of converted matrix
-int32_t c_in(int n, int r, int c, int32_t* st) {
-    // element at (r , c) gets multiplied with (x, r) element in columnized kernel
-    // and will be added up to element at (c / IH, c % IH, c), (H, W, C) at output
-
-    // we want (h, w, ic) of original input
-    // ic == r / (KH * KW)
-    
-    // first element should be ((c / IH) - (KH / 2), (c % IH) - (KW / 2))
-    // r % IC is the index with in kernel
-    const int h = (c / _IW) - (_KH / 2) + ((r % (_KH*_KW)) / _KW); 
-    const int w = (c % _IW) - (_KW / 2) + ((r % (_KH*_KW)) % _KW);
-
-    if(h < 0 || h >= _IH || w < 0 || w >= _IW) { // padding
-        return 0;
-    }
-    else {
-        return *(st + n * _IH*_IW*_IC + h * _IW*_IC + w * _IC + (r / (_KH*_KW)));
-    }
-}
-
-typedef struct {
-    int t;
-    int n;
-    int32_t** out;
-    int32_t** in;
-    int32_t* ker;
-} args;
-
-
-void* img2col(void* arg) {
-    int t = ((args*)arg)->t;
-    int n = ((args*)arg)->n;
-    int32_t* _out = (int32_t*)malloc(sizeof(int32_t) * (_IH * _IW / NUMTHREAD) * _IC * _KH * _KW);
-    
-    *(((args*)arg)->out) = _out;
-
-    for(int r = 0; r < (_IH*_IW / NUMTHREAD); r++) {
-        for(int c = 0; c < _IC*_KH*_KW; c++) {
-            _out[r * _IC*_KH*_KW + c] = c_in(n, c, r + t * (_IH * _IW / NUMTHREAD), _tensorIn);
-        }
-    }
-
-    pthread_exit(NULL);
-}
-
-void* ker2col(void* arg) {
-    int t = ((args*)arg)->t;
-    int32_t* _out = (int32_t*)malloc(sizeof(int32_t) * (_OC / NUMTHREAD) * _IC * _KH * _KW);
-
-    *(((args*)arg)->out) = _out;
-
-    for(int r = 0; r < (_OC / NUMTHREAD); r++) {
-        for(int c = 0; c < _IC*_KH*_KW; c++) {
-            _out[r*_IC*_KH*_KW + c] = c_ker(r + t * (_OC/NUMTHREAD), c, _kernel);
-        }
-    }
-
-    pthread_exit(NULL);
-}
-
 void* matmul_naive(void* arg) {
     int t = ((args*)arg)->t;
-    int32_t** in = ((args*)arg)->in;
-    int32_t* ker = ((args*)arg)->ker;
+    uint8_t** in = ((args*)arg)->in;
+    uint8_t* ker = ((args*)arg)->ker;
     int32_t* _out = (int32_t*)malloc(sizeof(int32_t) * (_OC / NUMTHREAD) * _IH * _IW);
-    int32_t* temp = (int32_t*)malloc(sizeof(int32_t) * (_OC/NUMTHREAD));
+    // int32_t* temp = (int32_t*)malloc(sizeof(int32_t) * (_OC/NUMTHREAD));
 
     *(((args*)arg)->out) = _out;
 
     for(int i = 0; i < _IH*_IW; i++) {
-        memset(temp, 0, sizeof(int32_t) * (_OC/NUMTHREAD));
+        // memset(temp, 0, sizeof(int32_t) * (_OC/NUMTHREAD));
         for(int j = 0; j < (_OC/NUMTHREAD); j++) {
-            // int32_t temp = 0;
+            int32_t temp = 0;
             for(int k = 0; k < _IC*_KH*_KW; k++) {
-                temp[j] += in[i / (_IH*_IW/NUMTHREAD)][(i % (_IH*_IW/NUMTHREAD)) * _IC*_KH*_KW + k] * ker[j * _IC*_KH*_KW + k];
+                temp += in[i / (_IH*_IW/NUMTHREAD)][(i % (_IH*_IW/NUMTHREAD)) * _IC*_KH*_KW + k] * ker[j * _IC*_KH*_KW + k];
             }
+            _out[i * (_OC/NUMTHREAD) + j] = temp;
         }
-        memcpy(_out + i * (_OC/NUMTHREAD), temp, sizeof(int32_t) * (_OC/NUMTHREAD));
+
+        // memcpy(_out + i * (_OC/NUMTHREAD), temp, sizeof(int32_t) * (_OC/NUMTHREAD));
     }
 
     pthread_exit(NULL);
 }
+
 
 int inference(
     int32_t *tensorIn,
@@ -609,10 +335,10 @@ int inference(
     pthread_t b;
     pthread_t c;
     pthread_t d;
-    int32_t* a_ker = NULL;
-    int32_t* b_ker = NULL;
-    int32_t* c_ker = NULL;
-    int32_t* d_ker = NULL;
+    uint8_t* a_ker = NULL;
+    uint8_t* b_ker = NULL;
+    uint8_t* c_ker = NULL;
+    uint8_t* d_ker = NULL;
     args _a_arg = { 0, UNUSED, &a_ker, UNUSED, UNUSED };
     args _b_arg = { 1, UNUSED, &b_ker, UNUSED, UNUSED };
     args _c_arg = { 2, UNUSED, &c_ker, UNUSED, UNUSED };
@@ -627,10 +353,10 @@ int inference(
     pthread_join(d, &d_st);
 
     for(int n = 0; n < N; n++) {
-        int32_t* a_in = NULL;
-        int32_t* b_in = NULL;
-        int32_t* c_in = NULL;
-        int32_t* d_in = NULL;
+        uint8_t* a_in = NULL;
+        uint8_t* b_in = NULL;
+        uint8_t* c_in = NULL;
+        uint8_t* d_in = NULL;
         args a_arg = { 0, n, &a_in, UNUSED, UNUSED };
         args b_arg = { 1, n, &b_in, UNUSED, UNUSED };
         args c_arg = { 2, n, &c_in, UNUSED, UNUSED };
@@ -644,7 +370,7 @@ int inference(
         pthread_join(c, &c_st);
         pthread_join(d, &d_st);
 
-        int32_t* _in[] = { a_in, b_in, c_in, d_in };
+        uint8_t* _in[] = { a_in, b_in, c_in, d_in };
         int32_t* a_out = NULL;
         int32_t* b_out = NULL;
         int32_t* c_out = NULL;
