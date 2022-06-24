@@ -284,12 +284,10 @@ void* matmul_naive(void* arg) {
     uint8_t** in = ((args*)arg)->in;
     uint8_t* ker = ((args*)arg)->ker;
     int32_t* _out = (int32_t*)malloc(sizeof(int32_t) * (_OC / NUMTHREAD) * _IH * _IW);
-    // int32_t* temp = (int32_t*)malloc(sizeof(int32_t) * (_OC/NUMTHREAD));
 
     *(((args*)arg)->out) = _out;
 
     for(int i = 0; i < _IH*_IW; i++) {
-        // memset(temp, 0, sizeof(int32_t) * (_OC/NUMTHREAD));
         for(int j = 0; j < (_OC/NUMTHREAD); j++) {
             int32_t temp = 0;
             for(int k = 0; k < _IC*_KH*_KW; k++) {
@@ -297,8 +295,6 @@ void* matmul_naive(void* arg) {
             }
             _out[i * (_OC/NUMTHREAD) + j] = temp;
         }
-
-        // memcpy(_out + i * (_OC/NUMTHREAD), temp, sizeof(int32_t) * (_OC/NUMTHREAD));
     }
 
     pthread_exit(NULL);
