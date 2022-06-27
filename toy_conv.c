@@ -33,7 +33,7 @@ double benchmark(
     int KH, int KW
 )
 {
-    int num_iter = 500; // originally 500
+    int num_iter = 1; // originally 500
 
     struct timespec start, end;
     double total_time = 0;
@@ -90,7 +90,9 @@ void* img2col(void* arg) {
         for(int r = 0; r < _IH*_IW; r++) {
             for(int c = 0; c < _IC*_KH*_KW; c++) {
                 // _out[r * _IC*_KH*_KW + c] = c_in(n, c, r + t * (_IH * _IW / NUMTHREAD), _tensorIn);
-                _out[n * _IH*_IW*_IC*_KH*_KW + r * _IC*_KH*_KW + c] = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                // _out[n * _IH*_IW*_IC*_KH*_KW + r * _IC*_KH*_KW + c] = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                *(_out) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                _out = _out + 1;
             }
         }
     }
@@ -106,7 +108,9 @@ void* ker2col(void* arg) {
 
     for(int r = 0; r < (_OC / NUMTHREAD); r++) {
         for(int c = 0; c < _IC*_KH*_KW; c++) {
-            _out[r*_IC*_KH*_KW + c] = c_ker(r + t * (_OC/NUMTHREAD), c, _kernel);
+            // _out[r*_IC*_KH*_KW + c] = c_ker(r + t * (_OC/NUMTHREAD), c, _kernel);
+            *(_out) = c_ker(r + t * (_OC/NUMTHREAD), c, _kernel);
+            _out = _out + 1;
         }
     }
 
@@ -117,15 +121,8 @@ void* matmul_naive(void* arg) {
     int t = ((args*)arg)->t;
     uint8_t* in = ((args*)arg)->in;
     uint8_t** ker = ((args*)arg)->ker;
-    
-    int32_t* _out;
-    if(t) {
-        _out = (int32_t*)malloc(sizeof(int32_t) * (_N / NUMTHREAD) * _IH * _IW * _OC);
-        *(((args*)arg)->out) = _out;
-    }
-    else {
-        _out = _tensorOut;
-    }
+
+    int32_t* out = _tensorOut + t * (_N/NUMTHREAD)*_IH*_IW*_OC;
 
     for(int n = 0; n < _N / NUMTHREAD; n++) {
         for(int i = 0; i < _IH*_IW; i++) {
@@ -134,7 +131,9 @@ void* matmul_naive(void* arg) {
                 for(int k = 0; k < _IC*_KH*_KW; k++) {
                     temp += in[n * _IH*_IW*_IC*_KH*_KW + i * _IC*_KH*_KW + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * _IC*_KH*_KW + k];
                 }
-                _out[n * _IH*_IW*_OC + i * _OC + j] = temp;
+                // _out[n * _IH*_IW*_OC + i * _OC + j] = temp;
+                *(_out) = temp;
+                _out = _out + 1;
             }
         }
     }
@@ -225,16 +224,6 @@ int inference(
     pthread_join(b, &b_st);
     pthread_join(c, &c_st);
     pthread_join(d, &d_st);
-
-
-    // merge output
-    const int OUTSIZE = (N/NUMTHREAD)*IH*IW*OC;
-    tensorOut = tensorOut + OUTSIZE;
-    memcpy(tensorOut, b_out, sizeof(int32_t)*OUTSIZE);
-    tensorOut = tensorOut + OUTSIZE;
-    memcpy(tensorOut, c_out, sizeof(int32_t)*OUTSIZE);
-    tensorOut = tensorOut + OUTSIZE;
-    memcpy(tensorOut, d_out, sizeof(int32_t)*OUTSIZE);
 
     free(a_in);
     free(b_in);
