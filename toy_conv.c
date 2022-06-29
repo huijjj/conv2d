@@ -93,7 +93,6 @@ void* ker2col_144(void* arg) {
 
     pthread_exit(NULL);
 }
-
 void* ker2col_288(void* arg) {
     int t = ((args*)arg)->t;
     uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_OC / NUMTHREAD) * 288);
@@ -109,7 +108,6 @@ void* ker2col_288(void* arg) {
 
     pthread_exit(NULL);
 }
-
 void* ker2col_576(void* arg) {
     int t = ((args*)arg)->t;
     uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_OC / NUMTHREAD) * 576);
@@ -125,7 +123,6 @@ void* ker2col_576(void* arg) {
 
     pthread_exit(NULL);
 }
-
 void* ker2col_800(void* arg) {
     int t = ((args*)arg)->t;
     uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_OC / NUMTHREAD) * 800);
@@ -141,7 +138,6 @@ void* ker2col_800(void* arg) {
 
     pthread_exit(NULL);
 }
-
 void* ker2col_1568(void* arg) {
     int t = ((args*)arg)->t;
     uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_OC / NUMTHREAD) * 1568);
@@ -166,25 +162,75 @@ void* img2col_matmul_144(void* arg) {
     uint8_t _img[_IH * _IW * 144 * _N / NUMTHREAD];
     register uint8_t* __img = _img;
 
-    for(int n = 0; n < (_N / NUMTHREAD); n++) {
-        for(int r = 0; r < _IH*_IW; r++) {
-            for(int c = 0; c < 144; c++) {
-                *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
-                __img = __img + 1;
+    if(_IH*_IW == 256) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 256; r++) {
+                for(int c = 0; c < 144; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 256; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 144; k++) {
+                        temp = temp + _img[n * 256*144 + i * 144 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 144 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
             }
         }
     }
-
-    register int32_t temp;
-    for(int n = 0; n < _N / NUMTHREAD; n++) {
-        for(int i = 0; i < _IH*_IW; i++) {
-            for(int j = 0; j < _OC; j++) {
-                temp = 0;
-                for(int k = 0; k < 144; k++) {
-                    temp = temp + _img[n * _IH*_IW*144 + i * 144 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 144 + k];
+    else if(_IH*_IW == 1024) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 1024; r++) {
+                for(int c = 0; c < 144; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
                 }
-                *(_out) = temp;
-                _out = _out + 1;
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 1024; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 144; k++) {
+                        temp = temp + _img[n * 1024*144 + i * 144 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 144 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+    }
+    else {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 4096; r++) {
+                for(int c = 0; c < 144; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 4096; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 144; k++) {
+                        temp = temp + _img[n * 4096*144 + i * 144 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 144 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
             }
         }
     }
@@ -199,28 +245,82 @@ void* img2col_matmul_288(void* arg) {
     uint8_t _img[_IH * _IW * 288 * _N / NUMTHREAD];
     register uint8_t* __img = _img;
 
-    for(int n = 0; n < (_N / NUMTHREAD); n++) {
-        for(int r = 0; r < _IH*_IW; r++) {
-            for(int c = 0; c < 288; c++) {
-                *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
-                __img = __img + 1;
+    if(_IH*_IW == 256) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 256; r++) {
+                for(int c = 0; c < 288; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
             }
         }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 256; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 288; k++) {
+                        temp = temp + _img[n * 256*288 + i * 288 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 288 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+
+    }
+    else if(_IH*_IW == 1024) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 1024; r++) {
+                for(int c = 0; c < 288; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 1024; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 288; k++) {
+                        temp = temp + _img[n * 1024*288 + i * 288 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 288 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+        
+    }
+    else {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 4096; r++) {
+                for(int c = 0; c < 288; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 4096; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 288; k++) {
+                        temp = temp + _img[n * 4096*288 + i * 288 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 288 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+
     }
 
-    register int32_t temp;
-    for(int n = 0; n < _N / NUMTHREAD; n++) {
-        for(int i = 0; i < _IH*_IW; i++) {
-            for(int j = 0; j < _OC; j++) {
-                temp = 0;
-                for(int k = 0; k < 288; k++) {
-                    temp = temp + _img[n * _IH*_IW*288 + i * 288 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 288 + k];
-                }
-                *(_out) = temp;
-                _out = _out + 1;
-            }
-        }
-    }
     
     pthread_exit(NULL);
 }
@@ -232,29 +332,81 @@ void* img2col_matmul_576(void* arg) {
     uint8_t _img[_IH * _IW * 576 * _N / NUMTHREAD];
     register uint8_t* __img = _img;
 
-    for(int n = 0; n < (_N / NUMTHREAD); n++) {
-        for(int r = 0; r < _IH*_IW; r++) {
-            for(int c = 0; c < 576; c++) {
-                *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
-                __img = __img + 1;
-            }
-        }
-    }
-
-    register int32_t temp;
-    for(int n = 0; n < _N / NUMTHREAD; n++) {
-        for(int i = 0; i < _IH*_IW; i++) {
-            for(int j = 0; j < _OC; j++) {
-                temp = 0;
-                for(int k = 0; k < 576; k++) {
-                    temp = temp + _img[n * _IH*_IW*576 + i * 576 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 576 + k];
+    if(_IH*_IW == 256) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 256; r++) {
+                for(int c = 0; c < 576; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
                 }
-                *(_out) = temp;
-                _out = _out + 1;
             }
         }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 256; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 576; k++) {
+                        temp = temp + _img[n * 256*576 + i * 576 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 576 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+
     }
-    
+    else if(_IH*_IW == 1024) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 1024; r++) {
+                for(int c = 0; c < 576; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 1024; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 576; k++) {
+                        temp = temp + _img[n * 1024*576 + i * 576 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 576 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+        
+    }
+    else {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 4096; r++) {
+                for(int c = 0; c < 576; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 4096; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 576; k++) {
+                        temp = temp + _img[n * 4096*576 + i * 576 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 576 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+
+    }
     pthread_exit(NULL);
 }
 void* img2col_matmul_800(void* arg) {
@@ -265,29 +417,79 @@ void* img2col_matmul_800(void* arg) {
     uint8_t _img[_IH * _IW * 800 * _N / NUMTHREAD];
     register uint8_t* __img = _img;
 
-    for(int n = 0; n < (_N / NUMTHREAD); n++) {
-        for(int r = 0; r < _IH*_IW; r++) {
-            for(int c = 0; c < 800; c++) {
-                *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
-                __img = __img + 1;
+    if(_IH*_IW == 256) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 256; r++) {
+                for(int c = 0; c < 800; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 256; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 800; k++) {
+                        temp = temp + _img[n * 256*800 + i * 800 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 800 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+    }
+    else if(_IH*_IW == 1024) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 1024; r++) {
+                for(int c = 0; c < 800; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 1024; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 800; k++) {
+                        temp = temp + _img[n * 1024*800 + i * 800 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 800 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+    }
+    else {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 4096; r++) {
+                for(int c = 0; c < 800; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 4096; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 800; k++) {
+                        temp = temp + _img[n * 4096*800 + i * 800 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 800 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
             }
         }
     }
 
-    register int32_t temp;
-    for(int n = 0; n < _N / NUMTHREAD; n++) {
-        for(int i = 0; i < _IH*_IW; i++) {
-            for(int j = 0; j < _OC; j++) {
-                temp = 0;
-                for(int k = 0; k < 800; k++) {
-                    temp = temp + _img[n * _IH*_IW*800 + i * 800 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 800 + k];
-                }
-                *(_out) = temp;
-                _out = _out + 1;
-            }
-        }
-    }
-    
     pthread_exit(NULL);
 }
 void* img2col_matmul_1568(void* arg) {
@@ -298,32 +500,85 @@ void* img2col_matmul_1568(void* arg) {
     uint8_t _img[_IH * _IW * 1568 * _N / NUMTHREAD];
     register uint8_t* __img = _img;
 
-    for(int n = 0; n < (_N / NUMTHREAD); n++) {
-        for(int r = 0; r < _IH*_IW; r++) {
-            for(int c = 0; c < 1568; c++) {
-                *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
-                __img = __img + 1;
+    if(_IH*_IW == 256) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 256; r++) {
+                for(int c = 0; c < 1568; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
             }
         }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 256; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 1568; k++) {
+                        temp = temp + _img[n * 256*1568 + i * 1568 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 1568 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+
+    }
+    else if(_IH*_IW == 1024) {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 1024; r++) {
+                for(int c = 0; c < 1568; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 1024; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 1568; k++) {
+                        temp = temp + _img[n * 1024*1568 + i * 1568 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 1568 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+        
+    }
+    else {
+        for(int n = 0; n < (_N / NUMTHREAD); n++) {
+            for(int r = 0; r < 4096; r++) {
+                for(int c = 0; c < 1568; c++) {
+                    *(__img) = c_in(n + t * (_N/NUMTHREAD), c, r, _tensorIn);
+                    __img = __img + 1;
+                }
+            }
+        }
+
+        register int32_t temp;
+        for(int n = 0; n < _N / NUMTHREAD; n++) {
+            for(int i = 0; i < 4096; i++) {
+                for(int j = 0; j < _OC; j++) {
+                    temp = 0;
+                    for(int k = 0; k < 1568; k++) {
+                        temp = temp + _img[n * 4096*1568 + i * 1568 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 1568 + k];
+                    }
+                    *(_out) = temp;
+                    _out = _out + 1;
+                }
+            }
+        }
+
     }
 
-    register int32_t temp;
-    for(int n = 0; n < _N / NUMTHREAD; n++) {
-        for(int i = 0; i < _IH*_IW; i++) {
-            for(int j = 0; j < _OC; j++) {
-                temp = 0;
-                for(int k = 0; k < 1568; k++) {
-                    temp = temp + _img[n * _IH*_IW*1568 + i * 1568 + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * 1568 + k];
-                }
-                *(_out) = temp;
-                _out = _out + 1;
-            }
-        }
-    }
     
     pthread_exit(NULL);
 }
-
 
 int inference(
     int32_t *tensorIn,
