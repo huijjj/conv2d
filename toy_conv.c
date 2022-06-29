@@ -96,11 +96,11 @@ void* ker2col(void* arg) {
 
 void* img2col_matmul(void* arg) {
     int t = ((args*)arg)->t;
-    uint8_t** ker = ((args*)arg)->ker;
+    register uint8_t** ker = ((args*)arg)->ker;
 
-    int32_t* _out = _tensorOut + t * (_N / NUMTHREAD) * _IH * _IW * _OC;
+    register int32_t* _out = _tensorOut + t * (_N / NUMTHREAD) * _IH * _IW * _OC;
     uint8_t _img[_IH * _IW * _IC * _KH * _KW * _N / NUMTHREAD];
-    uint8_t* __img = _img;
+    register uint8_t* __img = _img;
 
     for(int n = 0; n < (_N / NUMTHREAD); n++) {
         for(int r = 0; r < _IH*_IW; r++) {
