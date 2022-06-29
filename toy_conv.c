@@ -196,6 +196,9 @@ int inference(
     free(c_ker);
     free(d_ker);
 
+  
+
+
     return 0;
     /* Code Ends Here */
 }
