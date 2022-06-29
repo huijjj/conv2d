@@ -49,12 +49,12 @@ double benchmark(
 
 
 // converts kernel into matrix, gets element in row r and column c of converted matrix
-inline int32_t c_ker(int r, int c, int32_t* st) {
-    return *(st + r * (_KH*_KW*_IC) + ((c % (_KH*_KW)) / _KW) * (_KW*_IC) + ((c % (_KH*_KW)) % _KW) * _IC + (c / (_KH*_KW)));
+inline uint8_t c_ker(int r, int c, int32_t* st) {
+    return (uint8_t)(*(st + r * (_KH*_KW*_IC) + ((c % (_KH*_KW)) / _KW) * (_KW*_IC) + ((c % (_KH*_KW)) % _KW) * _IC + (c / (_KH*_KW))));
 }
 
 // converts input into matrix, gets element in row r and column c of converted matrix
-inline int32_t c_in(int n, int r, int c, int32_t* st) {
+inline uint8_t c_in(int n, int r, int c, int32_t* st) {
     // element at (r , c) gets multiplied with (x, r) element in columnized kernel
     // and will be added up to element at (c / IH, c % IH, c), (H, W, C) at output
 
@@ -70,22 +70,22 @@ inline int32_t c_in(int n, int r, int c, int32_t* st) {
         return 0;
     }
     else {
-        return *(st + n * _IH*_IW*_IC + h * _IW*_IC + w * _IC + (r / (_KH*_KW)));
+        return (uint8_t)(*(st + n * _IH*_IW*_IC + h * _IW*_IC + w * _IC + (r / (_KH*_KW))));
     }
 }
 
 typedef struct {
     int t;
-    int32_t** out;
-    int32_t* in;
-    int32_t** ker;
+    uint8_t** out;
+    uint8_t* in;
+    uint8_t** ker;
 } args;
 
 
 void* img2col(void* arg) {
     int t = ((args*)arg)->t;
 
-    int32_t* _out = (int32_t*)malloc(sizeof(int32_t) * (_N / NUMTHREAD) * _IH * _IW * _IC * _KH * _KW);
+    uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_N / NUMTHREAD) * _IH * _IW * _IC * _KH * _KW);
     
     *(((args*)arg)->out) = _out;
 
@@ -103,7 +103,7 @@ void* img2col(void* arg) {
 void* ker2col(void* arg) {
     int t = ((args*)arg)->t;
 
-    int32_t* _out = (int32_t*)malloc(sizeof(int32_t) * (_OC / NUMTHREAD) * _IC * _KH * _KW);
+    uint8_t* _out = (uint8_t*)malloc(sizeof(uint8_t) * (_OC / NUMTHREAD) * _IC * _KH * _KW);
 
     *(((args*)arg)->out) = _out;
 
@@ -118,8 +118,8 @@ void* ker2col(void* arg) {
 
 void* matmul_naive(void* arg) {
     int t = ((args*)arg)->t;
-    int32_t* in = ((args*)arg)->in;
-    int32_t** ker = ((args*)arg)->ker;
+    uint8_t* in = ((args*)arg)->in;
+    uint8_t** ker = ((args*)arg)->ker;
     
     int32_t* _out = _tensorOut + t * (_N/NUMTHREAD) * _IH*_IW*_OC;
     for(int n = 0; n < (_N / NUMTHREAD); n++) {
@@ -168,10 +168,10 @@ int inference(
     pthread_t b;
     pthread_t c;
     pthread_t d;
-    int32_t* a_ker = NULL;
-    int32_t* b_ker = NULL;
-    int32_t* c_ker = NULL;
-    int32_t* d_ker = NULL;
+    uint8_t* a_ker = NULL;
+    uint8_t* b_ker = NULL;
+    uint8_t* c_ker = NULL;
+    uint8_t* d_ker = NULL;
     args a_arg = { 0, &a_ker, UNUSED, UNUSED };
     args b_arg = { 1, &b_ker, UNUSED, UNUSED };
     args c_arg = { 2, &c_ker, UNUSED, UNUSED };
@@ -185,10 +185,10 @@ int inference(
     pthread_join(c, &c_st);
     pthread_join(d, &d_st);
 
-    int32_t* a_in = NULL;
-    int32_t* b_in = NULL;
-    int32_t* c_in = NULL;
-    int32_t* d_in = NULL;
+    uint8_t* a_in = NULL;
+    uint8_t* b_in = NULL;
+    uint8_t* c_in = NULL;
+    uint8_t* d_in = NULL;
     args _a_arg = { 0, &a_in, UNUSED, UNUSED };
     args _b_arg = { 1, &b_in, UNUSED, UNUSED };
     args _c_arg = { 2, &c_in, UNUSED, UNUSED };
@@ -203,7 +203,7 @@ int inference(
     pthread_join(d, &d_st);
 
 
-    int32_t* _ker[] = { a_ker, b_ker, c_ker, d_ker };
+    uint8_t* _ker[] = { a_ker, b_ker, c_ker, d_ker };
     args __a_arg = { 0, UNUSED, a_in, _ker };
     args __b_arg = { 1, UNUSED, b_in, _ker };
     args __c_arg = { 2, UNUSED, c_in, _ker };
