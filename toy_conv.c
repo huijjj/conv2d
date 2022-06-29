@@ -45,12 +45,12 @@ double benchmark(
 
 
 // converts kernel into matrix, gets element in row r and column c of converted matrix
-int32_t c_ker(int r, int c, int32_t* st) {
+inline int32_t c_ker(int r, int c, int32_t* st) {
     return *(st + r * (_KH*_KW*_IC) + ((c % (_KH*_KW)) / _KW) * (_KW*_IC) + ((c % (_KH*_KW)) % _KW) * _IC + (c / (_KH*_KW)));
 }
 
 // converts input into matrix, gets element in row r and column c of converted matrix
-int32_t c_in(int n, int r, int c, int32_t* st) {
+inline int32_t c_in(int n, int r, int c, int32_t* st) {
     // element at (r , c) gets multiplied with (x, r) element in columnized kernel
     // and will be added up to element at (c / IH, c % IH, c), (H, W, C) at output
 
