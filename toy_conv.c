@@ -121,15 +121,15 @@ void* matmul_naive(void* arg) {
     int32_t* in = ((args*)arg)->in;
     int32_t** ker = ((args*)arg)->ker;
     
-    int32_t* _out = _tensorOut;
+    int32_t* _out = _tensorOut + t * (_N/NUMTHREAD) * _IH*_IW*_OC;
     for(int n = 0; n < (_N / NUMTHREAD); n++) {
         for(int i = 0; i < _IH*_IW; i++) {
             for(int j = 0; j < _OC; j++) {
                 register int32_t temp = 0;
                 for(int k = 0; k < _IC*_KH*_KW; k++) {
-                    temp += in[i * _IC*_KH*_KW + k] * ker[j / (_OC / NUMTHREAD)][j * _IC*_KH*_KW + k];
+                    temp += in[n * _IH*_IH*_IC*_KH*_KW + i * _IC*_KH*_KW + k] * ker[j / (_OC / NUMTHREAD)][(j % (_OC / NUMTHREAD)) * _IC*_KH*_KW + k];
                 }
-                // *(_out++) = temp;
+                *(_out++) = temp;
             }
         }
     }
@@ -157,7 +157,7 @@ int inference(
     _KH = KH; 
     _KW = KW;
     _tensorIn = tensorIn;
-    _tensorOut = _tensorOut;
+    _tensorOut = tensorOut;
     _kernel = kernel;
 
     int a_st;
